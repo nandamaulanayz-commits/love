@@ -413,6 +413,28 @@
       .item-actions { grid-column: 1 / -1; justify-content: stretch; }
       .mini-btn { flex: 1; }
     }
+
+
+    .modal-gallery {
+      display: flex;
+      gap: 10px;
+      padding: 14px;
+      overflow-x: auto;
+      background: #fff7fa;
+    }
+
+    .modal-gallery img {
+      width: 86px;
+      height: 70px;
+      object-fit: cover;
+      border-radius: 14px;
+      cursor: pointer;
+      border: 2px solid transparent;
+    }
+
+    .modal-gallery img:hover {
+      border-color: #b53c61;
+    }
   </style>
 </head>
 <body>
@@ -500,7 +522,7 @@
               </div>
               <div class="field">
                 <label>Upload Foto</label>
-                <input id="inputImage" type="file" accept="image/*">
+                <input id="inputImages" type="file" accept="image/*" multiple>
               </div>
               <div class="field full">
                 <label>Cerita</label>
@@ -543,6 +565,7 @@
     <div class="modal-content">
       <button class="modal-close" id="modalClose">×</button>
       <img id="modalImage" alt="Foto detail kenangan">
+      <div id="modalGallery" class="modal-gallery"></div>
       <div class="modal-body">
         <span class="category" id="modalCategory"></span>
         <h2 id="modalTitle"></h2>
@@ -603,6 +626,7 @@
 
     const modal = document.getElementById("detailModal");
     const modalImage = document.getElementById("modalImage");
+    const modalGallery = document.getElementById("modalGallery");
     const modalCategory = document.getElementById("modalCategory");
     const modalTitle = document.getElementById("modalTitle");
     const modalDate = document.getElementById("modalDate");
@@ -617,10 +641,10 @@
     const inputStory = document.getElementById("inputStory");
     const inputY = document.getElementById("inputY");
     const inputX = document.getElementById("inputX");
-    const inputImage = document.getElementById("inputImage");
+    const inputImages = document.getElementById("inputImages");
     const uploadPreview = document.getElementById("uploadPreview");
     const adminKey = document.getElementById("adminKey");
-    let uploadedImageData = null;
+    let uploadedPhotos = [];
     async function loadMemories() {
   try {
     showToast("Memuat data kenangan...");
@@ -632,18 +656,36 @@
       throw new Error(result.message || "Gagal mengambil data");
     }
 
-    memories = result.data.map(item => ({
-      id: Number(item.id),
-      title: item.title,
-      date: item.date,
-      category: item.category,
-      story: item.story,
-      image: item.photo_url || defaultPhotos.cafe,
-      position: [
-        Number(item.map_y),
-        Number(item.map_x)
-      ]
-    }));
+    memories = result.data.map(item => {
+      const photos = Array.isArray(item.photos)
+        ? item.photos.filter(photo => photo && photo.photo_url)
+        : [];
+
+      const imageUrls = photos.map(photo => photo.photo_url).filter(Boolean);
+
+      if (imageUrls.length === 0 && item.photo_url) {
+        imageUrls.push(item.photo_url);
+      }
+
+      if (imageUrls.length === 0) {
+        imageUrls.push(defaultPhotos.cafe);
+      }
+
+      return {
+        id: Number(item.id),
+        title: item.title,
+        date: item.date,
+        category: item.category,
+        story: item.story,
+        image: imageUrls[0],
+        images: imageUrls,
+        photos: photos,
+        position: [
+          Number(item.map_y),
+          Number(item.map_x)
+        ]
+      };
+    });
 
     renderAll();
     showToast("Data berhasil dimuat");
@@ -728,7 +770,25 @@ function getAdminKey() {
 
     function openModal(memory) {
       if (!memory) return;
-      modalImage.src = memory.image;
+
+      const images = memory.images && memory.images.length > 0
+        ? memory.images
+        : [memory.image || defaultPhotos.cafe];
+
+      modalImage.src = images[0];
+
+      if (modalGallery) {
+        modalGallery.innerHTML = images.map(image => `
+          <img src="${image}" data-image="${image}" alt="Foto kenangan">
+        `).join("");
+
+        modalGallery.querySelectorAll("img").forEach(img => {
+          img.addEventListener("click", () => {
+            modalImage.src = img.dataset.image;
+          });
+        });
+      }
+
       modalCategory.textContent = memory.category;
       modalTitle.textContent = memory.title;
       modalDate.textContent = memory.date;
@@ -759,7 +819,7 @@ function getAdminKey() {
           <img src="${memory.image}" alt="${memory.title}">
           <div>
             <h3>${memory.title}</h3>
-            <p>${memory.date} • ${memory.category} • Y:${memory.position[0]} X:${memory.position[1]}</p>
+            <p>${memory.date} • ${memory.category} • ${(memory.images || []).length} foto • Y:${memory.position[0]} X:${memory.position[1]}</p>
           </div>
           <div class="item-actions">
             <button class="mini-btn" data-edit="${memory.id}">Edit</button>
@@ -823,8 +883,15 @@ map.on("click", function (event) {
       inputStory.value = memory.story;
       inputY.value = memory.position[0];
       inputX.value = memory.position[1];
-      uploadedImageData = null;
-      uploadPreview.innerHTML = `<img src="${memory.image}" alt="Preview foto">`;
+      uploadedPhotos = [];
+      const existingImages = memory.images && memory.images.length > 0 ? memory.images : [memory.image];
+      uploadPreview.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;width:100%;padding:10px;">
+          ${existingImages.map(image => `
+            <img src="${image}" style="width:100%;height:110px;object-fit:cover;border-radius:16px;">
+          `).join("")}
+        </div>
+      `;
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
@@ -864,7 +931,7 @@ map.on("click", function (event) {
       memoryId.value = "";
       inputY.value = 520;
       inputX.value = 620;
-      uploadedImageData = null;
+      uploadedPhotos = [];
       uploadPreview.textContent = "Pilih foto untuk melihat preview";
     }
 
@@ -880,15 +947,41 @@ map.on("click", function (event) {
       renderAdminList();
     }
 
-    inputImage.addEventListener("change", (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        uploadedImageData = reader.result;
-        uploadPreview.innerHTML = `<img src="${uploadedImageData}" alt="Preview foto">`;
-      };
-      reader.readAsDataURL(file);
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    inputImages.addEventListener("change", async (event) => {
+      const files = Array.from(event.target.files || []);
+      uploadedPhotos = [];
+
+      if (files.length === 0) {
+        uploadPreview.textContent = "Pilih foto untuk melihat preview";
+        return;
+      }
+
+      for (const file of files) {
+        const base64 = await fileToBase64(file);
+
+        uploadedPhotos.push({
+          name: file.name,
+          type: file.type || "image/jpeg",
+          base64: base64
+        });
+      }
+
+      uploadPreview.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;width:100%;padding:10px;">
+          ${uploadedPhotos.map(photo => `
+            <img src="${photo.base64}" style="width:100%;height:110px;object-fit:cover;border-radius:16px;">
+          `).join("")}
+        </div>
+      `;
     });
 
     form.addEventListener("submit", async (event) => {
@@ -915,12 +1008,8 @@ map.on("click", function (event) {
     map_x: inputX.value
   };
 
-  if (uploadedImageData && uploadedImageData.startsWith("data:")) {
-    const file = inputImage.files[0];
-
-    payload.photo_base64 = uploadedImageData;
-    payload.photo_name = file ? file.name : `foto-${Date.now()}.jpg`;
-    payload.photo_type = file ? file.type : "image/jpeg";
+  if (uploadedPhotos.length > 0) {
+    payload.photos = uploadedPhotos;
   }
 
   try {
