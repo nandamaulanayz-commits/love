@@ -413,6 +413,80 @@
       .item-actions { grid-column: 1 / -1; justify-content: stretch; }
       .mini-btn { flex: 1; }
     }
+
+    .modal-photo-wrap {
+      position: relative;
+      background: #fff0f5;
+    }
+
+    .gallery-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 4;
+      width: 42px;
+      height: 42px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255,255,255,.9);
+      color: var(--deep);
+      font-size: 30px;
+      font-weight: 1000;
+      box-shadow: var(--shadow-soft);
+      display: grid;
+      place-items: center;
+    }
+
+    .gallery-nav.prev { left: 14px; }
+    .gallery-nav.next { right: 14px; }
+
+    .gallery-nav:disabled {
+      opacity: .35;
+      cursor: not-allowed;
+    }
+
+    .modal-gallery {
+      display: flex;
+      gap: 10px;
+      padding: 14px;
+      overflow-x: auto;
+      background: #fff7fa;
+      border-bottom: 1px solid rgba(181,60,97,.1);
+    }
+
+    .modal-gallery img {
+      width: 86px;
+      height: 70px;
+      object-fit: cover;
+      border-radius: 14px;
+      cursor: pointer;
+      border: 3px solid transparent;
+      flex: 0 0 auto;
+      opacity: .72;
+      transition: .18s ease;
+    }
+
+    .modal-gallery img:hover,
+    .modal-gallery img.active {
+      border-color: #b53c61;
+      opacity: 1;
+      transform: translateY(-2px);
+    }
+
+    .photo-counter {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      z-index: 4;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.9);
+      color: var(--deep);
+      font-weight: 1000;
+      font-size: 13px;
+      box-shadow: var(--shadow-soft);
+    }
+
   </style>
 </head>
 <body>
@@ -429,7 +503,7 @@
       </div>
       <div class="top-actions">
         <button class="top-btn" id="openTimelineBtn">Timeline</button>
-        <button class="top-btn primary" id="openAdminBtn" style="display:none;">Admin</button>
+        <button class="top-btn primary" id="openAdminBtn">Admin</button>
       </div>
     </div>
 
@@ -542,7 +616,13 @@
     <div class="modal-backdrop" id="modalBackdrop"></div>
     <div class="modal-content">
       <button class="modal-close" id="modalClose">×</button>
-      <img id="modalImage" alt="Foto detail kenangan">
+      <div class="modal-photo-wrap">
+        <img id="modalImage" alt="Foto detail kenangan">
+        <button class="gallery-nav prev" id="galleryPrev" type="button">‹</button>
+        <button class="gallery-nav next" id="galleryNext" type="button">›</button>
+        <span class="photo-counter" id="photoCounter">1/1</span>
+      </div>
+      <div id="modalGallery" class="modal-gallery"></div>
       <div class="modal-body">
         <span class="category" id="modalCategory"></span>
         <h2 id="modalTitle"></h2>
@@ -607,6 +687,12 @@
     const modalTitle = document.getElementById("modalTitle");
     const modalDate = document.getElementById("modalDate");
     const modalStory = document.getElementById("modalStory");
+    const modalGallery = document.getElementById("modalGallery");
+    const galleryPrev = document.getElementById("galleryPrev");
+    const galleryNext = document.getElementById("galleryNext");
+    const photoCounter = document.getElementById("photoCounter");
+    let modalImages = [];
+    let modalImageIndex = 0;
 
     const form = document.getElementById("memoryForm");
     const memoryId = document.getElementById("memoryId");
@@ -632,18 +718,30 @@
       throw new Error(result.message || "Gagal mengambil data");
     }
 
-    memories = result.data.map(item => ({
-      id: Number(item.id),
-      title: item.title,
-      date: item.date,
-      category: item.category,
-      story: item.story,
-      image: item.photo_url || defaultPhotos.cafe,
-      position: [
-        Number(item.map_y),
-        Number(item.map_x)
-      ]
-    }));
+    memories = result.data.map(item => {
+      const photos = Array.isArray(item.photos)
+        ? item.photos
+            .map(photo => typeof photo === "string" ? photo : photo.photo_url)
+            .filter(Boolean)
+        : [];
+
+      const fallbackImage = item.photo_url || defaultPhotos.cafe;
+      const images = photos.length > 0 ? photos : [fallbackImage];
+
+      return {
+        id: Number(item.id),
+        title: item.title,
+        date: item.date,
+        category: item.category,
+        story: item.story,
+        image: images[0],
+        images: images,
+        position: [
+          Number(item.map_y),
+          Number(item.map_x)
+        ]
+      };
+    });
 
     renderAll();
     showToast("Data berhasil dimuat");
@@ -726,9 +824,48 @@ function getAdminKey() {
       memoryCard.classList.add("show");
     }
 
+    function updateModalImage(index) {
+      if (!modalImages.length) return;
+
+      modalImageIndex = (index + modalImages.length) % modalImages.length;
+      modalImage.src = modalImages[modalImageIndex];
+
+      if (photoCounter) {
+        photoCounter.textContent = `${modalImageIndex + 1}/${modalImages.length}`;
+      }
+
+      if (galleryPrev && galleryNext) {
+        const onlyOnePhoto = modalImages.length <= 1;
+        galleryPrev.disabled = onlyOnePhoto;
+        galleryNext.disabled = onlyOnePhoto;
+      }
+
+      if (modalGallery) {
+        modalGallery.querySelectorAll("img").forEach((thumb, thumbIndex) => {
+          thumb.classList.toggle("active", thumbIndex === modalImageIndex);
+        });
+      }
+    }
+
     function openModal(memory) {
       if (!memory) return;
-      modalImage.src = memory.image;
+
+      modalImages = memory.images && memory.images.length > 0
+        ? memory.images
+        : [memory.image];
+
+      modalGallery.innerHTML = modalImages.map((image, index) => `
+        <img src="${image}" alt="Foto kenangan ${index + 1}" data-index="${index}">
+      `).join("");
+
+      modalGallery.querySelectorAll("img").forEach(img => {
+        img.addEventListener("click", () => {
+          updateModalImage(Number(img.dataset.index));
+        });
+      });
+
+      updateModalImage(0);
+
       modalCategory.textContent = memory.category;
       modalTitle.textContent = memory.title;
       modalDate.textContent = memory.date;
@@ -954,6 +1091,12 @@ map.on("click", function (event) {
     resetMapBtn.addEventListener("click", () => { map.fitBounds(bounds); memoryCard.classList.remove("show"); if(activeMarker) activeMarker.setIcon(createHeartIcon(false)); });
     document.getElementById("modalClose").addEventListener("click", closeModal);
     document.getElementById("modalBackdrop").addEventListener("click", closeModal);
+
+    if (galleryPrev && galleryNext) {
+      galleryPrev.addEventListener("click", () => updateModalImage(modalImageIndex - 1));
+      galleryNext.addEventListener("click", () => updateModalImage(modalImageIndex + 1));
+    }
+
     document.getElementById("cancelEditBtn").addEventListener("click", resetForm);
 
     document.addEventListener("keydown", (event) => {
