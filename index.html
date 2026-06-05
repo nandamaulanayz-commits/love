@@ -487,6 +487,33 @@
       box-shadow: var(--shadow-soft);
     }
 
+    .music-btn {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 9999;
+  border: none;
+  padding: 13px 18px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #b53c61, #d86f8d);
+  color: white;
+  font-weight: 900;
+  box-shadow: 0 14px 34px rgba(112, 56, 74, .25);
+  cursor: pointer;
+}
+
+.music-btn.playing {
+  background: linear-gradient(135deg, #6f4b42, #b53c61);
+}
+
+@media (max-width: 640px) {
+  .music-btn {
+    right: 14px;
+    bottom: 14px;
+    padding: 11px 14px;
+    font-size: 13px;
+  }
+}
   </style>
 </head>
 <body>
@@ -633,6 +660,14 @@
   </div>
 
   <div class="toast" id="toast">Data berhasil disimpan</div>
+
+  <audio id="bgMusic" loop>
+    <source src="assets/music/lagu.mp3" type="audio/mpeg">
+  </audio>
+  
+  <button id="musicBtn" class="music-btn">
+    ♫ Putar Lagu
+  </button>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
@@ -793,7 +828,10 @@ function getAdminKey() {
       markerRefs = {};
       memories.forEach(memory => {
         const marker = L.marker(memory.position, { icon: createHeartIcon(false), memoryId: memory.id });
-        marker.on("click", () => focusMemory(memory.id));
+        marker.on("click", () => {
+  playMusicOnce();
+  focusMemory(memory.id);
+});
         marker.addTo(markersLayer);
         markerRefs[memory.id] = marker;
       });
@@ -1004,6 +1042,48 @@ map.on("click", function (event) {
       uploadedImageData = null;
       uploadPreview.textContent = "Pilih foto untuk melihat preview";
     }
+
+const bgMusic = document.getElementById("bgMusic");
+const musicBtn = document.getElementById("musicBtn");
+
+let isMusicPlaying = false;
+let hasUserInteracted = false;
+
+async function playMusicOnce() {
+  if (!bgMusic || !musicBtn || isMusicPlaying) return;
+
+  try {
+    bgMusic.volume = 0.55;
+    await bgMusic.play();
+
+    isMusicPlaying = true;
+    hasUserInteracted = true;
+
+    musicBtn.textContent = "❚❚ Jeda Lagu";
+    musicBtn.classList.add("playing");
+  } catch (error) {
+    console.log("Autoplay masih diblokir browser:", error);
+  }
+}
+
+if (musicBtn && bgMusic) {
+  musicBtn.addEventListener("click", async () => {
+    if (!isMusicPlaying) {
+      await playMusicOnce();
+    } else {
+      bgMusic.pause();
+      isMusicPlaying = false;
+      musicBtn.textContent = "♫ Putar Lagu";
+      musicBtn.classList.remove("playing");
+    }
+  });
+}
+
+// Musik mulai setelah interaksi pertama dengan peta.
+// Ini tidak mengganggu proses load marker karena event-nya aman.
+map.once("dragstart", playMusicOnce);
+map.once("zoomstart", playMusicOnce);
+map.once("click", playMusicOnce);
 
     function showToast(message) {
       toast.textContent = message;
